@@ -62,7 +62,7 @@ var margin = {top: 52.5, right: 19.5, bottom: 19.5, left: 39.5},
 var renderer = new PIXI.autoDetectRenderer(
   width + margin.left + margin.right,
   height + margin.top + margin.bottom,
-  {'transparent': true, 'antialias': true});
+  {'transparent': true});
 document.getElementById("chart").appendChild(renderer.view);
 
 // Various scales. These domains make assumptions of data, naturally.
@@ -146,13 +146,13 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
 
       // make digit interactive
       digit.interactive = true;
-      digit.on("mouseover",
+      digit.on('mouseover',
         function(data) {
           this.bringToFront();
           this.tint = 0x000000;
           if(!animating) animate(); //repaint
         });
-      digit.on("mouseout",
+      digit.on('mouseout',
         function mouseout(data){
           this.tint = 0xFFFFFF;
           if(!animating) animate(); //repaint
@@ -173,26 +173,52 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
           .attr('height', box.height)
           .on('mouseover', enableInteraction);
 
+    // Add the iteration buttons.
+    var buttonDiv = d3.select('body').append('div')
+        .attr('class', 'iteration')
+        .style({'position': 'absolute', 'top': height + margin.top - 20 + 'px', 'right': margin.right + 'px'});
+    var buttonStart = buttonDiv.append('button')
+        .attr('type', 'button')
+        .text('start')
+        .on('click', function() {
+          startIteration();
+        });
+    var buttonStop = buttonDiv.append('button')
+        .attr('type', 'button')
+        .text('stop')
+        .on('click', function() {
+          stopIteration();
+        });
+    var buttonReset = buttonDiv.append('button')
+        .attr('type', 'button')
+        .text('reset')
+        .on('click', function() {
+          label.text('000');
+          startIteration();
+        });
+    buttonDiv.append('button')
+        .attr('type', 'button')
+        .text('reset zoom')
+        .on('click', function() {
+          zoom.scale(1).translate([0, 0]);
+          zoomed();
+        });
+
     // stop spinner
     spinner.stop();
 
     // Start a transition that interpolates the data based on iteration.
-    svg.transition()
-        .duration(animationDuration * maxIteration)
-        .ease('linear')
-        .tween('iteration', tweenIteration)
-        .each('end', enableInteraction);
+    startIteration();
 
     // After the transition finishes, you can mouseover to change the iteration.
     function enableInteraction() {
+      // Cancel the current transition, if any.
+      stopIteration();
+
       var iterationScale = d3.scale.linear()
           .domain([1, maxIteration])
           .range([box.x + 10, box.x + box.width - 10])
           .clamp(true);
-
-      // Cancel the current transition, if any.
-      svg.transition().duration(0);
-      animating = false;
 
       overlay
           .on('mouseover', mouseover)
@@ -213,45 +239,63 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
       }
     }
 
+    function startIteration() {
+      buttonStart.attr('disabled', 'disabled');
+      buttonStop.attr('disabled', null);
+      buttonReset.attr('disabled', 'disabled');
+
+      animating = true;
+      minimap.visible = false;
+      renderMapbox();
+
+      var currentIteration = +label.text();
+      if(currentIteration == maxIteration) currentIteration = 1;
+
+      svg.transition()
+          .duration(animationDuration * (maxIteration - currentIteration))
+          .ease('linear')
+          .tween('iteration', tweenIteration)
+          .each('end', enableInteraction);
+    }
+
+    function stopIteration() {
+      buttonStart.attr('disabled', null);
+      buttonStop.attr('disabled', 'disabled');
+      buttonReset.attr('disabled', null);
+
+      svg.transition();
+      animating = false;
+      minimap.visible = true;
+      renderMapbox();
+    }
+
     // Tweens the entire chart by first tweening the iteration, and then the data.
     // For the interpolated data, the dots and label are redrawn.
     function tweenIteration() {
-      var iteration = d3.interpolateNumber(1, maxIteration);
+      var iteration = d3.interpolateNumber(+label.text(), maxIteration);
       return function(t) { displayIteration(iteration(t)); };
     }
-
-    // find cumulative maximum absolute value for axis
-    var xmaxs = [], ymaxs = [];
-    d3.range(0, iterations.length).reduce(function (acc, i) {
-      var xmax = Math.max(acc[0], results.map(function(d) { return Math.abs(d.pos[i].x); }).max() * 1.1); // small padding
-      var ymax = Math.max(acc[1], results.map(function(d) { return Math.abs(d.pos[i].y); }).max() * 1.1); // small padding
-
-      xmaxs.push(xmax);
-      ymaxs.push(ymax);
-
-      return  [xmax, ymax];
-    }, [0, 0]);
 
     // Updates the display to show the specified iteration.
     function displayIteration(iteration) {
       var interpolated = interpolateData(iteration);
 
-      // TODO: smooth x/y maxs out here
-      var itr = bisect.left(iterations, Math.ceil(iteration) - 1);
-      updateScale([-xmaxs[itr], xmaxs[itr]], [-ymaxs[itr], ymaxs[itr]]);
-      // xScale.domain([-xmaxs[itr], xmaxs[itr]]);
-      // yScale.domain([-ymaxs[itr], ymaxs[itr]]);
-      // zoom.x(xScale).y(yScale);
-      // xAxisElement.call(xAxis);
-      // yAxisElement.call(yAxis);
-
+      var xmax = 0, ymax = 0;
       interpolated.forEach(function(data, i) {
         // unadjust zoom translate
         digits[i].position.x = xScale0(data.x) + margin.left;
         digits[i].position.y = yScale0(data.y) + margin.top;
+
+        xmax = Math.max(xmax, Math.abs(data.x));
+        ymax = Math.max(ymax, Math.abs(data.y));
       });
-      //animate(); // repaint
-      renderMapbox(); // also repaint minimap
+      updateScale([-xmax, xmax], [-ymax, ymax]);
+
+      if(animating) 
+        animate(); // repaint
+      else 
+        renderMapbox(); // disable minimap during transition animation coz it's too slow
+
       label.text(pad(Math.round(iteration), 3));
     }
 
@@ -289,7 +333,7 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
     // create stats object
     javascript:(function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();stats.domElement.style.cssText='position:fixed;left:0;top:0;z-index:10000';document.body.appendChild(stats.domElement);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='//rawgit.com/mrdoob/stats.js/master/build/stats.min.js';document.head.appendChild(script);})()
 
-    animate();
+    // animate();
   });
 });
 
@@ -330,12 +374,14 @@ view.addChild(stage);
 container.addChild(view);
 
 // rectangle mask on main view
-var rect = new PIXI.Graphics();
-container.addChild(rect);
-rect.lineStyle(0);
-rect.beginFill(0xFFFFFF, 1);
-rect.drawRect(margin.left, 0, width, height + margin.top);
-view.mask = rect;
+view.mask = function() {
+  var rect = new PIXI.Graphics();
+  rect.lineStyle(0);
+  rect.beginFill(0xFFFFFF, 1);
+  rect.drawRect(margin.left, 0, width, height + margin.top);
+  container.addChild(rect);
+  return rect;
+}();
 
 var zoom = d3.behavior.zoom()
     .x(xScale)
@@ -357,12 +403,12 @@ function zoomed() {
     view.scale.y = scale;
 
     // FIXME: The calculation is incorrect.
-    mapviewbox.position.x = (translate[0] / minimapScale - minimapWidth) / scale + minimapWidth;
-    mapviewbox.position.y = (translate[1] / minimapScale - minimapHeight) / scale + minimapHeight;
+    mapviewbox.position.x = - translate[0] / minimapScale / scale;
+    mapviewbox.position.y = - translate[1] / minimapScale / scale;
     mapviewbox.scale.x = 1 / scale;
     mapviewbox.scale.y = 1 / scale;
 
-    animate();
+    if(!animating) animate();
 }
 
 // resume zoom after domain update
@@ -379,38 +425,70 @@ function updateScale(newXd, newYd) {
 // minimap
 var minimapScale = 6, minimapWidth = width / minimapScale, minimapHeight = height / minimapScale;
 var minimapRenderer = new PIXI.RenderTexture(renderer, width, height, PIXI.SCALE_MODES.NEAREST);
-var map = new PIXI.Sprite(minimapRenderer);
-map.scale.x = minimapWidth / width;
-map.scale.y = minimapHeight / height;
-var mapbox = new PIXI.Graphics();
-mapbox.lineStyle(1, 0x000000, 0.3);
-mapbox.beginFill(0xFFFFFF, 1);
-mapbox.drawRect(0, 0, minimapWidth, minimapHeight);
-var mapviewbox = new PIXI.Graphics();
-mapviewbox.lineStyle(2, 0xFF0000, 0.3);
-mapviewbox.beginFill(0xFFFFFF, 0);
-mapviewbox.drawRect(0, 0, minimapWidth, minimapHeight);
-var minimap = new PIXI.Container();
-minimap.position.x = width - minimapWidth + margin.left;
-minimap.position.y = 5;
-minimap.addChild(mapviewbox);
-minimap.addChild(mapbox);
-minimap.addChild(map);
-var minimapbox = new PIXI.Graphics();
-minimapbox.lineStyle(0);
-minimapbox.beginFill(0xFFFFFF, 1);
-minimapbox.drawRect(0, 0, minimapWidth + 1, minimapHeight + 1);
-minimap.addChild(minimapbox);
-minimap.mask = minimapbox;
+minimapRenderer.render(stage);
+// minimap image itself
+var map = function() {
+  var map = new PIXI.Sprite(minimapRenderer);
+  map.scale.x = minimapWidth / width;
+  map.scale.y = minimapHeight / height;
+
+  // FIXME: This doesn't work yet
+  // map.interactive = true;
+  // map.on('mousedown', translate);
+  // //map.on('mousemove', translate);
+  // map.on('touchstart', translate);
+  // function translate(data) {
+  //   console.log(data);
+  //   if(!animating) renderMapbox(); //repaint
+  // };
+
+  return map;
+}();
+// rectangle bounding box for minimap
+var mapbox = function() {
+  var mapbox = new PIXI.Graphics();
+  mapbox.lineStyle(1, 0x000000, 0.3);
+  mapbox.beginFill(0xFFFFFF, 1);
+  mapbox.drawRect(0, 0, minimapWidth, minimapHeight);
+
+  return mapbox;
+}();
+// rectangle bounding box for view within minimap
+var mapviewbox = function() {
+  var mapviewbox = new PIXI.Graphics();
+  mapviewbox.lineStyle(2, 0xFF0000, 0.3);
+  mapviewbox.beginFill(0xFFFFFF, 0);
+  mapviewbox.drawRect(0, 0, minimapWidth, minimapHeight);
+  return mapviewbox;
+} ();
+// minimap container itself
+var minimap = function() {
+  var minimap = new PIXI.Container();
+  minimap.position.x = width - minimapWidth + margin.left;
+  minimap.position.y = 5;
+
+  // minimap bouding mask
+  var minimapMask = function() {
+    var minimapMask = new PIXI.Graphics();
+    minimapMask.lineStyle(0);
+    minimapMask.beginFill(0xFFFFFF, 1);
+    minimapMask.drawRect(0, 0, minimapWidth + 1, minimapHeight + 1);
+    minimap.addChild(minimapMask);
+    return minimapMask;
+  }();
+  minimap.mask = minimapMask;
+
+  minimap.addChild(mapbox);
+  minimap.addChild(mapviewbox);
+  minimap.addChild(map);
+
+  return minimap;
+}();
 container.addChild(minimap);
 
 function renderMapbox() {
-    // render the stage first
-    // renderer.render(stage);
-
     // render minimap texture
-    minimapRenderer.clear();
-    minimapRenderer.render(stage);
+    minimapRenderer.render(stage, undefined, true);
 
     // render the minimap
     renderer.render(container);
