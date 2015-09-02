@@ -3,7 +3,7 @@
 <meta charset='utf-8'>
 <title>t-SNE Viewer</title>
 <style>
-svg, canvas {
+#chart svg, #chart canvas {
   position: absolute;
   left: 0;
   top: 0;
@@ -56,14 +56,7 @@ p {
 var margin = {top: 52.5, right: 19.5, bottom: 19.5, left: 39.5},
     width = window.innerWidth - margin.left - margin.right,
     height = window.innerHeight - margin.top - margin.bottom,
-    animating = true;
-
-// Add PIXI Renderer first
-var renderer = new PIXI.autoDetectRenderer(
-  width + margin.left + margin.right,
-  height + margin.top + margin.bottom,
-  {'transparent': true});
-document.getElementById("chart").appendChild(renderer.view);
+    animating = false;
 
 // Various scales. These domains make assumptions of data, naturally.
 var xScale0 = d3.scale.linear().domain([-20, 20]).range([0, width]),
@@ -117,6 +110,15 @@ var label = svg.append('text')
     .attr('x', width)
     .text('000');
 
+
+// Add PIXI Renderer second so mousedown works
+var renderer = new PIXI.autoDetectRenderer(
+  width + margin.left + margin.right,
+  height + margin.top + margin.bottom,
+  {'transparent': true}
+);
+document.getElementById("chart").appendChild(renderer.view);
+    
 // add spinner for loading
 var spinner = new Spinner().spin(document.body);
 var spinnerText = document.createElement('p');
@@ -153,7 +155,7 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
           if(!animating) animate(); //repaint
         });
       digit.on('mouseout',
-        function mouseout(data){
+        function(data){
           this.tint = 0xFFFFFF;
           if(!animating) animate(); //repaint
   		  });
@@ -165,10 +167,12 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
     // Add an overlay for the iteration label.
     var box = label.node().getBBox();
 
-    var overlay = svg.append('rect')
+    var overlay = d3.select('body').append('svg')
+          .style({'position': 'absolute', 'bottom': margin.bottom + 'px', 'right': margin.right + 'px'})
+          .attr('width', box.width)
+          .attr('height', box.height)
+          .append('rect')
           .attr('class', 'overlay')
-          .attr('x', box.x)
-          .attr('y', box.y)
           .attr('width', box.width)
           .attr('height', box.height)
           .on('mouseover', enableInteraction);
@@ -217,7 +221,7 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
 
       var iterationScale = d3.scale.linear()
           .domain([1, maxIteration])
-          .range([box.x + 10, box.x + box.width - 10])
+          .range([10, box.width - 10])
           .clamp(true);
 
       overlay
@@ -291,9 +295,9 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
       });
       updateScale([-xmax, xmax], [-ymax, ymax]);
 
-      if(animating) 
+      if(animating)
         animate(); // repaint
-      else 
+      else
         renderMapbox(); // disable minimap during transition animation coz it's too slow
 
       label.text(pad(Math.round(iteration), 3));
@@ -391,8 +395,6 @@ var zoom = d3.behavior.zoom()
 d3.select('#chart').call(zoom);
 
 function zoomed() {
-    //projection.translate(d3.event.translate).scale(d3.event.scale);
-    //g.selectAll("path").attr("d", path);
     xAxisElement.call(xAxis);
     yAxisElement.call(yAxis);
 
@@ -402,11 +404,12 @@ function zoomed() {
     view.scale.x = scale;
     view.scale.y = scale;
 
-    // FIXME: The calculation is incorrect.
     mapviewbox.position.x = - translate[0] / minimapScale / scale;
     mapviewbox.position.y = - translate[1] / minimapScale / scale;
-    mapviewbox.scale.x = 1 / scale;
-    mapviewbox.scale.y = 1 / scale;
+    mapviewbox.clear();
+    mapviewbox.lineStyle(2, 0xFF0000, 0.3);
+    mapviewbox.beginFill(0xFFFFFF, 0);
+    mapviewbox.drawRect(0, 0, minimapWidth / scale, minimapHeight / scale);
 
     if(!animating) animate();
 }
@@ -431,17 +434,6 @@ var map = function() {
   var map = new PIXI.Sprite(minimapRenderer);
   map.scale.x = minimapWidth / width;
   map.scale.y = minimapHeight / height;
-
-  // FIXME: This doesn't work yet
-  // map.interactive = true;
-  // map.on('mousedown', translate);
-  // //map.on('mousemove', translate);
-  // map.on('touchstart', translate);
-  // function translate(data) {
-  //   console.log(data);
-  //   if(!animating) renderMapbox(); //repaint
-  // };
-
   return map;
 }();
 // rectangle bounding box for minimap
@@ -450,6 +442,30 @@ var mapbox = function() {
   mapbox.lineStyle(1, 0x000000, 0.3);
   mapbox.beginFill(0xFFFFFF, 1);
   mapbox.drawRect(0, 0, minimapWidth, minimapHeight);
+
+  // FIXME: D3 Zoom interferes with mouse behavior here
+  // TODO: Implement draging viewbox on minimap
+  mapbox.interactive = true;
+  //dragging = false;
+  mapbox.on('mousedown', translate);
+  mapbox.on('touchstart', translate);
+  // mapbox.on('mousemove', function(e) {
+  //   if(dragging) translate(e);
+  //   e.stopPropagation();
+  //   return false;
+  // });
+  // mapbox.on('mouseup', dragend);
+  // mapbox.on('mouseout', dragend);
+  // mapbox.on('touchend', dragend);
+
+  function translate(e) {
+    var pos = e.data.getLocalPosition(mapbox), scale = zoom.scale();
+    //translate minimap location back to global offsets
+    zoom.translate([- (pos.x * scale - minimapWidth / 2) * minimapScale, - (pos.y * scale - minimapHeight / 2) * minimapScale]);
+    zoomed();
+    e.stopPropagation();
+    return false;
+  };
 
   return mapbox;
 }();
