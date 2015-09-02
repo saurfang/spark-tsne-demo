@@ -148,6 +148,7 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
 
       // make digit interactive
       digit.interactive = true;
+      digit.defaultTint = 0xFFFFFF;
       digit.on('mouseover',
         function(data) {
           this.bringToFront();
@@ -156,7 +157,7 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
         });
       digit.on('mouseout',
         function(data){
-          this.tint = 0xFFFFFF;
+          this.tint = this.defaultTint;
           if(!animating) animate(); //repaint
   		  });
 
@@ -168,13 +169,13 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
     var box = label.node().getBBox();
 
     var overlay = d3.select('body').append('svg')
-          .style({'position': 'absolute', 'bottom': margin.bottom + 'px', 'right': margin.right + 'px'})
+          .style({'position': 'absolute', 'bottom': margin.bottom + 20 + 'px', 'right': margin.right + 'px'})
           .attr('width', box.width)
-          .attr('height', box.height)
+          .attr('height', box.height - 20)
           .append('rect')
           .attr('class', 'overlay')
           .attr('width', box.width)
-          .attr('height', box.height)
+          .attr('height', box.height - 20)
           .on('mouseover', enableInteraction);
 
     // Add the iteration buttons.
@@ -207,11 +208,22 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
           zoom.scale(1).translate([0, 0]);
           zoomed();
         });
+    buttonDiv.append('button')
+        .attr('type', 'button')
+        .text('toggle color')
+        .on('click', function() {
+          var tint = digits[0].defaultTint == 0xFFFFFF ? 0x000000 : 0xFFFFFF;
+          digits.forEach(function(digit) {
+            digit.defaultTint = digit.tint = tint;
+          });
+          if(!animating) renderMapbox();
+        });
 
     // stop spinner
     spinner.stop();
 
     // Start a transition that interpolates the data based on iteration.
+    label.text('001');
     startIteration();
 
     // After the transition finishes, you can mouseover to change the iteration.
@@ -253,7 +265,10 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
       renderMapbox();
 
       var currentIteration = +label.text();
-      if(currentIteration == maxIteration) currentIteration = 1;
+      if(currentIteration == maxIteration) {
+        currentIteration = 1;
+        label.text('001');
+      }
 
       svg.transition()
           .duration(animationDuration * (maxIteration - currentIteration))
@@ -273,6 +288,46 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
       renderMapbox();
     }
 
+    d3.select('body').on('keydown', function() {
+      switch(d3.event.keyCode) {
+        case 37: // left arrow
+          if(!animating) displayIteration(Math.max(1, +label.text() - 1));
+          break;
+        case 39: // right arrow
+          if(!animating) displayIteration(Math.min(maxIteration, +label.text() + 1));
+          break;
+        case 32: // space
+          animating ? stopIteration() : startIteration();
+          break;
+        case 187: // +
+          zoom.scale(zoom.scale() * 1.1);
+          zoomed();
+          break;
+        case 189: // -
+          zoom.scale(zoom.scale() * 0.9);
+          zoomed();
+          break;
+        case 87: // w
+          translate(0, height * 0.05);
+          break;
+        case 65: // a
+          translate(width * 0.05, 0);
+          break;
+        case 83: // s
+          translate(0, - height * 0.05);
+          break;
+        case 68: // d
+          translate(- width * 0.05, 0);
+          break;
+      }
+
+      function translate(dx, dy) {
+        var current = zoom.translate();
+        zoom.translate([current[0] + dx, current[1] + dy]);
+        zoomed();
+      }
+    });
+
     // Tweens the entire chart by first tweening the iteration, and then the data.
     // For the interpolated data, the dots and label are redrawn.
     function tweenIteration() {
@@ -284,16 +339,17 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
     function displayIteration(iteration) {
       var interpolated = interpolateData(iteration);
 
-      var xmax = 0, ymax = 0;
+      //TODO: we can incorporate this inside interpolateDate
+      var limits = interpolated.reduce(function(acc, data) {
+        return [Math.max(acc[0], Math.abs(data.x)), Math.max(acc[1], Math.abs(data.y))];
+      }, [0, 0]);
+      updateScale([-limits[0], limits[0]], [-limits[1], limits[1]]);
+
       interpolated.forEach(function(data, i) {
         // unadjust zoom translate
         digits[i].position.x = xScale0(data.x) + margin.left;
         digits[i].position.y = yScale0(data.y) + margin.top;
-
-        xmax = Math.max(xmax, Math.abs(data.x));
-        ymax = Math.max(ymax, Math.abs(data.y));
       });
-      updateScale([-xmax, xmax], [-ymax, ymax]);
 
       if(animating)
         animate(); // repaint
