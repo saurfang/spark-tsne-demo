@@ -51,6 +51,7 @@ p {
 <script src='jszip-utils.min.js'></script>
 <script src='https://cdnjs.cloudflare.com/ajax/libs/pixi.js/3.0.7/pixi.min.js'></script>
 <script src='https://cdnjs.cloudflare.com/ajax/libs/spin.js/2.3.2/spin.min.js'></script>
+<script src='tsne-json.js'></script>
 <script>
 // Chart dimensions.
 var margin = {top: 52.5, right: 19.5, bottom: 19.5, left: 39.5},
@@ -127,20 +128,20 @@ spinner.el.appendChild(spinnerText);
 // Load the data.
 d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
   spinnerText.innerText = "Loading image data...";
-  JSZipUtils.getBinaryContent('mnist2500.csv.zip', function(err, imageData) {
+  JSZipUtils.getBinaryContent('mnist6000.csv.zip', function(err, imageData) {
     if(err) {
       throw err; // or handle err
     }
 
     var iterations = tsneData.iterations,
         maxIteration = iterations.max(),
-        results = tsneData.results,
+        results = tsneData.data,
         animationDuration = 100;
 
     spinnerText.innerText = "Unzipping image data...";
     var zip = new JSZip(imageData);
     var digits = [];
-    d3.csv.parseRows(zip.file("mnist2500.csv").asText()).forEach(function(row, i) {
+    d3.csv.parseRows(zip.file("mnist6000.csv").asText()).forEach(function(row, i) {
       var digit = drawSprite(row);
       // center the sprite's anchor point
       digit.anchor.x = 0.5;
@@ -337,7 +338,7 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
 
     // Updates the display to show the specified iteration.
     function displayIteration(iteration) {
-      var interpolated = interpolateData(iteration);
+      var interpolated = interpolateData(iteration, iterations, results);
 
       //TODO: we can incorporate this inside interpolateDate
       var limits = interpolated.reduce(function(acc, data) {
@@ -359,36 +360,6 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
       label.text(pad(Math.round(iteration), 3));
     }
 
-    // Interpolates the dataset for the given (fractional) iteration.
-    var bisect = d3.bisector(function(d) { return d; });
-    function interpolateData(iteration) {
-      var i = bisect.left(iterations, iteration);
-      return results.map(function(d) {
-        return {
-          key: d.key,
-          label: d.label,
-          x: interpolateValues(d.pos, function(d) { return d.x; }, i, iteration),
-          y: interpolateValues(d.pos, function(d) { return d.y; }, i, iteration)
-        };
-      });
-    }
-
-    // Finds (and possibly interpolates) the value for the specified iteration.
-    function interpolateValues(values, getter, i, iteration) {
-      if (i > 0) {
-        var ta = iterations[i], tb = iterations[i - 1],
-            t = (iteration - ta) / (tb - ta);
-        return getter(values[i]) * (1 - t) + getter(values[i - 1]) * t;
-      }
-      return getter(values[i]);
-    }
-
-    // Left pad number with '0'
-    function pad(n, width, z) {
-      z = z || '0';
-      n = n + '';
-      return n.length >= width ? n : new Array(width - n.length + 1).join(z) + n;
-    }
 
     // create stats object
     javascript:(function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();stats.domElement.style.cssText='position:fixed;left:0;top:0;z-index:10000';document.body.appendChild(stats.domElement);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='//rawgit.com/mrdoob/stats.js/master/build/stats.min.js';document.head.appendChild(script);})()
