@@ -147,6 +147,10 @@ d3.json('mnist.json?nocache=' + (new Date()).getTime(), function(tsneData) {
       digit.anchor.x = 0.5;
       digit.anchor.y = 0.5;
 
+      // scale digit down to see more digits at a time
+      digit.scale.x = 0.5;
+      digit.scale.y = 0.5;
+
       // make digit interactive
       digit.interactive = true;
       digit.defaultTint = 0xFFFFFF;
